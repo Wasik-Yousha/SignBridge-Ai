@@ -1,0 +1,1 @@
+export { AvatarScene } from './components';

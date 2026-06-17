@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+    --font-serif: "Playfair Display", Georgia, serif;
+    --font-mono: "JetBrains Mono", monospace;
+}
