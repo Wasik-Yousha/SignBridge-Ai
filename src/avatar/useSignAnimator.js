@@ -48,6 +48,59 @@ export function useSignAnimator(runtimeNodes) {
     resolve:   null,
   });
 
+  // ── Set a bone's rotation (delta from A-pose if applicable) ─────────────
+  const _setBoneRotation = useCallback((name, rx, ry, rz) => {
+    const bone = bonesRef.current[name];
+    if (!bone) return;
+    deltaRef.current[name] = [rx, ry, rz];
+    const base = A_POSE_BASE_QUAT[name];
+    if (base) {
+      _tmpEuler.set(rx, ry, rz, 'XYZ');
+      _tmpQuat.setFromEuler(_tmpEuler);
+      bone.quaternion.copy(base).multiply(_tmpQuat);
+    } else {
+      bone.rotation.set(rx, ry, rz);
+    }
+  }, []);
+
+  // ── Immediate pose — no interpolation ───────────────────────────────────
+  const _applyImmediate = useCallback((pose) => {
+    Object.entries(pose).forEach(([name, rot]) => {
+      _setBoneRotation(name, rot[0], rot[1], rot[2]);
+    });
+  }, [_setBoneRotation]);
+
+  // ── Get current delta (start from zero if not yet tracked) ──────────────
+  const _getDelta = useCallback((name) => {
+    let d = deltaRef.current[name];
+    if (!d) {
+      d = [0, 0, 0];
+      deltaRef.current[name] = d;
+    }
+    return d;
+  }, []);
+
+  // ── Cancel current sign ──────────────────────────────────────────────────
+  const _cancel = useCallback(() => {
+    const s = stateRef.current;
+    if (s.resolve) s.resolve(false);
+    stateRef.current = { active: false, frames: [], frameIdx: 0, targets: {}, holdUntil: -1, resolve: null };
+  }, []);
+
+  // ── Play an array of keyframes, returns Promise ──────────────────────────
+  const _playFrames = useCallback((frames, token) =>
+    new Promise((resolve) => {
+      if (tokenRef.current !== token) { resolve(false); return; }
+      stateRef.current = {
+        active:    true,
+        frames,
+        frameIdx:  0,
+        targets:   frames[0] || {},
+        holdUntil: -1,
+        resolve,
+      };
+    }), []);
+
   // ── Bone discovery ──────────────────────────────────────────────────────
   useEffect(() => {
     const byName = {};
@@ -76,67 +129,14 @@ export function useSignAnimator(runtimeNodes) {
     const mixamoCount = Object.keys(byName).filter((n) => n.startsWith('mixamorig')).length;
     console.log(`[SignAnimator] Registered ${mixamoCount} mixamorig* entries.`);
     _applyImmediate(defaultPose);
-  }, [runtimeNodes]);
-
-  // ── Set a bone's rotation (delta from A-pose if applicable) ─────────────
-  const _setBoneRotation = (name, rx, ry, rz) => {
-    const bone = bonesRef.current[name];
-    if (!bone) return;
-    deltaRef.current[name] = [rx, ry, rz];
-    const base = A_POSE_BASE_QUAT[name];
-    if (base) {
-      _tmpEuler.set(rx, ry, rz, 'XYZ');
-      _tmpQuat.setFromEuler(_tmpEuler);
-      bone.quaternion.copy(base).multiply(_tmpQuat);
-    } else {
-      bone.rotation.set(rx, ry, rz);
-    }
-  };
-
-  // ── Immediate pose — no interpolation ───────────────────────────────────
-  const _applyImmediate = (pose) => {
-    Object.entries(pose).forEach(([name, rot]) => {
-      _setBoneRotation(name, rot[0], rot[1], rot[2]);
-    });
-  };
-
-  // ── Get current delta (start from zero if not yet tracked) ──────────────
-  const _getDelta = (name) => {
-    let d = deltaRef.current[name];
-    if (!d) {
-      d = [0, 0, 0];
-      deltaRef.current[name] = d;
-    }
-    return d;
-  };
-
-  // ── Cancel current sign ──────────────────────────────────────────────────
-  const _cancel = () => {
-    const s = stateRef.current;
-    if (s.resolve) s.resolve(false);
-    stateRef.current = { active: false, frames: [], frameIdx: 0, targets: {}, holdUntil: -1, resolve: null };
-  };
-
-  // ── Play an array of keyframes, returns Promise ──────────────────────────
-  const _playFrames = (frames, token) =>
-    new Promise((resolve) => {
-      if (tokenRef.current !== token) { resolve(false); return; }
-      stateRef.current = {
-        active:    true,
-        frames,
-        frameIdx:  0,
-        targets:   frames[0] || {},
-        holdUntil: -1,
-        resolve,
-      };
-    });
+  }, [runtimeNodes, _applyImmediate]);
 
   // ── Public: stop ─────────────────────────────────────────────────────────
   const stop = useCallback(() => {
     tokenRef.current += 1;
     _cancel();
     _applyImmediate(defaultPose);
-  }, []);
+  }, [_applyImmediate, _cancel]);
 
   // ── Public: sign(word) → Promise<boolean> ────────────────────────────────
   const sign = useCallback(async (text) => {
@@ -166,7 +166,7 @@ export function useSignAnimator(runtimeNodes) {
     }
     if (tokenRef.current === token) _applyImmediate(defaultPose);
     return true;
-  }, []);
+  }, [_applyImmediate, _cancel, _playFrames]);
 
   // ── useFrame: drive bone.rotation toward targets each frame ──────────────
   useFrame(() => {

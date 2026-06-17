@@ -31,7 +31,9 @@ const RPMAvatarPicker = ({ onClose }) => {
           setModelUrl(data.url);
           onClose();
         }
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     };
 
     window.addEventListener('message', handleMessage);
